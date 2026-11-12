@@ -31,43 +31,79 @@ export interface SearchOptions {
 
 const SAFE_ASCII = "-._~!$&'()+,;=@";
 
-function isLetterOrDigit(ch: string): boolean {
-	return /^[\p{L}\p{N}]$/u.test(ch);
+type Kind = "alnum" | "punct" | "blank" | "unsafe";
+
+/** `A-Z a-z` and the Latin-1 letters U+00C0-U+00FF except `×` and `÷`. */
+function isKeyboardLetter(ch: string): boolean {
+	const c = ch.codePointAt(0) ?? 0;
+	return (
+		(c >= 0x41 && c <= 0x5a) ||
+		(c >= 0x61 && c <= 0x7a) ||
+		(c >= 0xc0 && c <= 0xff && c !== 0xd7 && c !== 0xf7)
+	);
 }
 
-function isSafeChar(ch: string): boolean {
-	return isLetterOrDigit(ch) || SAFE_ASCII.includes(ch);
+/** What one character becomes before the run rule applies. */
+function classify(ch: string): { kind: Kind; text: string } {
+	const c = ch.codePointAt(0) ?? 0;
+	if (isKeyboardLetter(ch) || (c >= 0x30 && c <= 0x39)) {
+		return { kind: "alnum", text: ch };
+	}
+	if (SAFE_ASCII.includes(ch)) {
+		return { kind: "punct", text: ch };
+	}
+	if (/^\s$/u.test(ch)) {
+		return { kind: "blank", text: "" };
+	}
+	if (/^\p{L}$/u.test(ch)) {
+		const parts = Array.from(ch.normalize("NFD"));
+		if (
+			parts.length > 1 &&
+			isKeyboardLetter(parts[0]) &&
+			parts.slice(1).every((p) => /^\p{Mn}$/u.test(p))
+		) {
+			return { kind: "alnum", text: parts[0] };
+		}
+	}
+	return { kind: "unsafe", text: "" };
 }
 
 /**
  * Unified path-name rule (shared with SpocWeb.Capture `PathNames.Normalize`).
  *
- * Safe characters are Unicode letters and digits and the ASCII characters
- * `- . _ ~ ! $ & ' ( ) + , ; = @`; everything else is unsafe. Each maximal run
- * of unsafe characters is handled as a whole: a run of whitespace only becomes
- * `replacement` when the characters on both sides are letters or digits, else
- * it is removed; a run containing any other unsafe character becomes
+ * Safe letters and digits are ASCII `A-Z a-z 0-9` and the Latin-1 letters
+ * U+00C0-U+00FF except `×` and `÷`; safe punctuation is the ASCII characters
+ * `- . _ ~ ! $ & ' ( ) + , ; = @`. Any other Unicode letter is decomposed
+ * (NFD): a safe letter followed only by combining marks becomes that base
+ * letter (`ą` to `a`, `Š` to `S`; Latin-1 letters never change), otherwise it
+ * is unsafe, like every other character. Each maximal run of unsafe
+ * characters is then handled as a whole: a run of whitespace only becomes
+ * `replacement` when the characters on both sides are safe letters or digits,
+ * else it is removed; a run containing any other unsafe character becomes
  * `replacement`, also at the start or end.
  */
 export function normalizeLabel(label: string, replacement: string): string {
-	const chars = Array.from(label);
+	const items = Array.from(label.normalize("NFC")).map(classify);
 	let result = "";
-	for (let i = 0; i < chars.length; ) {
-		if (isSafeChar(chars[i])) {
-			result += chars[i];
+	for (let i = 0; i < items.length; ) {
+		if (items[i].kind === "alnum" || items[i].kind === "punct") {
+			result += items[i].text;
 			i++;
 			continue;
 		}
 		let end = i;
-		while (end < chars.length && !isSafeChar(chars[end])) {
+		while (
+			end < items.length &&
+			(items[end].kind === "blank" || items[end].kind === "unsafe")
+		) {
 			end++;
 		}
-		const onlyBlanks = chars.slice(i, end).every((c) => /^\s$/u.test(c));
+		const onlyBlanks = items.slice(i, end).every((x) => x.kind === "blank");
 		const betweenAlphanumerics =
 			i > 0 &&
-			end < chars.length &&
-			isLetterOrDigit(chars[i - 1]) &&
-			isLetterOrDigit(chars[end]);
+			end < items.length &&
+			items[i - 1].kind === "alnum" &&
+			items[end].kind === "alnum";
 		if (!onlyBlanks || betweenAlphanumerics) {
 			result += replacement;
 		}
