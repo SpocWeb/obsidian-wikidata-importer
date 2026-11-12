@@ -16,10 +16,73 @@ export interface GetPropertiesOptions {
 	ignorePropertiesWithTimeRanges: boolean;
 	internalLinkPrefix: string;
 	spaceReplacement: string;
+	/**
+	 * Tells whether a note with this link text (as written inside `[[...]]`,
+	 * without `.md`) exists in the vault. When given, an entity link prefers an
+	 * existing note named in the old style (see `legacyLabel`) over a new-style
+	 * name that has no note yet.
+	 */
+	noteExists?: (link: string) => boolean;
 }
 
 export interface SearchOptions {
 	language: string;
+}
+
+const SAFE_ASCII = "-._~!$&'()+,;=@";
+
+function isLetterOrDigit(ch: string): boolean {
+	return /^[\p{L}\p{N}]$/u.test(ch);
+}
+
+function isSafeChar(ch: string): boolean {
+	return isLetterOrDigit(ch) || SAFE_ASCII.includes(ch);
+}
+
+/**
+ * Unified path-name rule (shared with SpocWeb.Capture `PathNames.Normalize`).
+ *
+ * Safe characters are Unicode letters and digits and the ASCII characters
+ * `- . _ ~ ! $ & ' ( ) + , ; = @`; everything else is unsafe. Each maximal run
+ * of unsafe characters is handled as a whole: a run of whitespace only becomes
+ * `replacement` when the characters on both sides are letters or digits, else
+ * it is removed; a run containing any other unsafe character becomes
+ * `replacement`, also at the start or end.
+ */
+export function normalizeLabel(label: string, replacement: string): string {
+	const chars = Array.from(label);
+	let result = "";
+	for (let i = 0; i < chars.length; ) {
+		if (isSafeChar(chars[i])) {
+			result += chars[i];
+			i++;
+			continue;
+		}
+		let end = i;
+		while (end < chars.length && !isSafeChar(chars[end])) {
+			end++;
+		}
+		const onlyBlanks = chars.slice(i, end).every((c) => /^\s$/u.test(c));
+		const betweenAlphanumerics =
+			i > 0 &&
+			end < chars.length &&
+			isLetterOrDigit(chars[i - 1]) &&
+			isLetterOrDigit(chars[end]);
+		if (!onlyBlanks || betweenAlphanumerics) {
+			result += replacement;
+		}
+		i = end;
+	}
+	return result;
+}
+
+/**
+ * The label as versions before the unified rule wrote it: every run of
+ * characters other than digits, letters and `,.~!$&'()+,;=@` becomes
+ * `replacement`. Used to find notes that were named in the old style.
+ */
+export function legacyLabel(label: string, replacement: string): string {
+	return label.replace(/[^\d\p{L},.~!$&'()+,;=@]+/gu, replacement);
 }
 
 export class EntityNotFoundError extends Error {
@@ -430,14 +493,28 @@ export class Entity {
 				// Entity-valued property: value URL ends in /Q<digits>
 				const entityMatch = value.match(/\/(Q(\d+))$/);
 				if (entityMatch && valueLabel) {
-					if (opts.spaceReplacement && opts.spaceReplacement.length > 0) {
-						valueLabel = valueLabel.replace(/[^\d\p{L},.~!$&'()+,;=@]+/gu, opts.spaceReplacement);
+					const replacement = opts.spaceReplacement;
+					const rawLabel = valueLabel;
+					if (replacement && replacement.length > 0) {
+						valueLabel = normalizeLabel(rawLabel, replacement);
 					}
-					const label = Entity.buildLink(
+					// numeric part only, matching original behaviour
+					let label = Entity.buildLink(
 						opts.internalLinkPrefix,
 						valueLabel,
-						entityMatch[2], // numeric part only, matching original behaviour
+						entityMatch[2],
 					);
+					if (replacement && replacement.length > 0 && opts.noteExists && !opts.noteExists(label)) {
+						// Prefer an existing note named in the old style.
+						const oldLabel = Entity.buildLink(
+							opts.internalLinkPrefix,
+							legacyLabel(rawLabel, replacement),
+							entityMatch[2],
+						);
+						if (oldLabel !== label && opts.noteExists(oldLabel)) {
+							label = oldLabel;
+						}
+					}
 					toAdd = `[[${label}]]`;
 				}
 			}

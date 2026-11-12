@@ -59,6 +59,9 @@ async function syncEntityToFile(
 			plugin.settings.ignorePropertiesWithTimeRanges,
 		internalLinkPrefix: plugin.settings.internalLinkPrefix,
 		spaceReplacement: plugin.settings.spaceReplacement,
+		// Link to a note that exists in the old naming style rather than to a new-style name without a note.
+		noteExists: (link) =>
+			plugin.app.metadataCache.getFirstLinkpathDest(link, file.path) !== null,
 	});
 
 	const filteredProperties: string[] = [];
