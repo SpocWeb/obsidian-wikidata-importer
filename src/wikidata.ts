@@ -373,6 +373,24 @@ export class Entity {
 			.replace(/\$\{id\}/g, id);
 	}
 
+	/**
+	 * The file path of the note for an entity: `prefix` + `.md` with the label
+	 * normalized by `normalizeLabel` when `spaceReplacement` is non-empty (the
+	 * same name entity links use), else built from the raw label as before.
+	 */
+	static noteName(
+		prefix: string,
+		label: string,
+		id: string,
+		spaceReplacement: string,
+	): string {
+		const name =
+			spaceReplacement && spaceReplacement.length > 0
+				? normalizeLabel(label, spaceReplacement)
+				: label;
+		return Entity.buildLink(`${prefix}.md`, name, id);
+	}
+
 	// -------------------------------------------------------------------------
 	// Query builder
 	// -------------------------------------------------------------------------

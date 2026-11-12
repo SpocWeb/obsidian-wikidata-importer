@@ -114,3 +114,21 @@ describe("entity links prefer existing old-style notes", () => {
 		]);
 	});
 });
+
+describe("Entity.noteName", () => {
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: intentional
+	const prefix = "db/${label}";
+
+	test("names the note like the entity links to it", () => {
+		expect(Entity.noteName(prefix, "Y-Kollektiv - Der Podcast", "1", "_")).toBe(
+			"db/Y-Kollektiv-Der_Podcast.md",
+		);
+		expect(Entity.noteName(prefix, "AC/DC", "1", "_")).toBe("db/AC_DC.md");
+	});
+
+	test("an empty replacement keeps the raw label as before", () => {
+		expect(Entity.noteName(prefix, "Thema Krise", "1", "")).toBe(
+			"db/Thema Krise.md",
+		);
+	});
+});

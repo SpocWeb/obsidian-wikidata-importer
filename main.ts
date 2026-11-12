@@ -124,11 +124,18 @@ class WikidataEntitySuggestModal extends SuggestModal<Entity> {
 				this.plugin.settings.internalLinkPrefix = "db/${label}";
 			}
 
-			const name = Entity.buildLink(
-				`${this.plugin.settings.internalLinkPrefix}.md`,
-				item.label || "",
-				item.id.substring(1),
-			);
+			const id = item.id.substring(1);
+			const prefix = this.plugin.settings.internalLinkPrefix;
+			const replacement = this.plugin.settings.spaceReplacement;
+			// New notes are named like the links to them (unified path rule); an
+			// existing note under the old raw-label name is used instead of a duplicate.
+			let name = Entity.noteName(prefix, item.label || "", id, replacement);
+			if (!this.app.vault.getAbstractFileByPath(name)) {
+				const rawName = Entity.noteName(prefix, item.label || "", id, "");
+				if (this.app.vault.getAbstractFileByPath(rawName)) {
+					name = rawName;
+				}
+			}
 
 			let file =
 				this.activeFile || this.app.vault.getAbstractFileByPath(name);
